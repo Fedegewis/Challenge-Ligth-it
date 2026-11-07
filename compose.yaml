@@ -46,11 +46,15 @@ services:
   worker:
     build: ./api
     command: python -m app.worker
-    environment: *backend-env
+    environment:
+      <<: *backend-env
+      SMTP_TIMEOUT_SECONDS: "10"
+      POLL_INTERVAL_SECONDS: "2"
+    stop_grace_period: 15s
     volumes:
       - ./api:/app
     depends_on:
-      db:
+      api:
         condition: service_healthy
       mailhog:
         condition: service_started

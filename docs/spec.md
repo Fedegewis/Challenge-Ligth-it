@@ -290,15 +290,17 @@ Every new job is created with `next_attempt_at = now()`, so it is **eligible imm
 
 ### 4.4  Worker and SMTP failures
 
-Loop:
+Every 2 seconds the worker processes up to 10 jobs, **one transaction per job**:
 
-1. In a transaction, take up to 10 jobs: `status = 'pending' AND next_attempt_at <= now()`, ordered by `id`, `FOR UPDATE SKIP LOCKED` (safe if more than one worker runs).
-2. For each job, send the confirmation email (plain text + HTML) to MailHog at `mailhog:1025`.
-3. Success → `status = 'sent'`, `sent_at = now()`.
-4. Failure (connection refused, timeout, SMTP error) → `attempts += 1`, `last_error` saved; if `attempts < 5`, `next_attempt_at = now() + 30 s × 2^(attempts − 1)` (30 s, 1 min, 2 min, 4 min); at the 5th failure `status = 'failed'`.
-5. Commit and repeat.
+1. Take one job: `status = 'pending' AND next_attempt_at <= now()`, ordered by `id`, `LIMIT 1 FOR UPDATE SKIP LOCKED`. A job locked by another worker is skipped, never waited for.
+2. Send the confirmation email (plain text + HTML, patient's name, no attachment) to `mailhog:1025`, with an SMTP socket timeout of 10 s (`SMTP_TIMEOUT_SECONDS`). The `Message-ID` is `<registration-{job_id}@patients.local>`, so a repeated delivery is recognizable.
+3. Success → `status = 'sent'`, `sent_at = clock_timestamp()`.
+4. Failure (connection refused, DNS, timeout, SMTP error) → `attempts += 1`, `last_error` saved (500 chars max); if `attempts < 5`, `next_attempt_at = clock_timestamp() + 30 s × 2^(attempts − 1)` (30 s, 1 min, 2 min, 4 min); at the 5th failure `status = 'failed'` and the job is never selected again.
+5. Commit, releasing the lock, and take the next job.
 
-Delivery is **at-least-once**: if the worker dies after SMTP accepted the message but before commit, the job is retried and the email may be sent twice. Acceptable for a confirmation email. The patient record is never modified by the worker.
+One job per transaction keeps the lock short and limits a crash to at most one in-flight email. On SIGTERM the worker finishes the in-flight job and exits; Compose gives it 15 s (`stop_grace_period`), above the SMTP timeout. DNS resolution is not bounded by the SMTP timeout (observed ~5 s when `mailhog` is stopped).
+
+Delivery is **at-least-once**. An email can be repeated when SMTP accepted it but the job was not committed as `sent`: the worker dies (or loses the database) between the server's `250 OK` and the commit, or the reply to `DATA` times out after the server already queued the message. The lock is released, the job is still `pending` and due, and the next run sends it again with the same `Message-ID`. Acceptable for a confirmation email. The patient record is never modified by the worker.
 
 ### 4.5  Verification of asynchrony
 
