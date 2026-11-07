@@ -3,9 +3,24 @@ name = "patient-registration-api"
 version = "0.1.0"
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "alembic==1.20.1",
     "fastapi==0.162.2",
+    "pillow==11.3.0",
+    "psycopg[binary]==3.2.13",
+    "python-multipart==0.0.33",
+    "sqlalchemy==2.0.57",
     "uvicorn[standard]==0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx==0.28.1",
+    "pytest==8.4.2",
 ]
 
 [tool.uv]
 package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
