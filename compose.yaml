@@ -1,0 +1,72 @@
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-patients}
+  SMTP_HOST: mailhog
+  SMTP_PORT: "1025"
+
+services:
+  db:
+    image: postgres:17.7-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-patients}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "${MAILHOG_UI_PORT:-8025}:8025"
+
+  api:
+    build: ./api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      <<: *backend-env
+      CORS_ORIGINS: http://localhost:${WEB_PORT:-3000}
+      WATCHFILES_FORCE_POLLING: "true"
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./api:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  worker:
+    build: ./api
+    command: python -m app.worker
+    environment: *backend-env
+    volumes:
+      - ./api:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+
+  web:
+    build: ./web
+    init: true
+    environment:
+      VITE_API_URL: http://localhost:${API_PORT:-8000}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
