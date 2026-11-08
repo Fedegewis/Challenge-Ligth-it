@@ -151,18 +151,13 @@ describe('patient list states', () => {
     expect(addPatientButton()).toBeVisible();
   });
 
-  it('keeps Add Patient disabled until a handler is connected', async () => {
-    const user = userEvent.setup();
-    mockFetch(jsonResponse([]), jsonResponse([]));
+  it('keeps Add Patient enabled in every state', async () => {
+    mockFetch(new TypeError('Failed to fetch'));
+    render(<App />);
 
-    const { unmount } = render(<App />);
-    expect(addPatientButton()).toBeDisabled();
-    unmount();
-
-    const onAddPatient = vi.fn();
-    render(<App onAddPatient={onAddPatient} />);
-    await user.click(addPatientButton());
-    expect(onAddPatient).toHaveBeenCalledOnce();
+    expect(addPatientButton()).toBeEnabled();
+    await screen.findByRole('alert');
+    expect(addPatientButton()).toBeEnabled();
   });
 });
 
@@ -197,6 +192,8 @@ describe('patient card', () => {
     render(<App />);
     await screen.findByRole('list', { name: 'Patients' });
 
+    await user.tab();
+    expect(addPatientButton()).toHaveFocus();
     await user.tab();
     expect(cardToggle('Bruno Díaz')).toHaveFocus();
     await user.keyboard('{Enter}');

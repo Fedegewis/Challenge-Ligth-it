@@ -1,32 +1,42 @@
 import { useEffect, useState } from 'react';
 import { fetchPatients, type Patient } from './api';
+import { Modal } from './components/Modal';
 import { PatientCard } from './components/PatientCard';
+import { PatientFormModal } from './components/PatientFormModal';
 
 type ListState =
   | { status: 'loading' }
   | { status: 'error' }
   | { status: 'ready'; patients: Patient[] };
 
-type AppProps = {
-  onAddPatient?: () => void;
-};
+type ListRequest = { id: number; showLoading: boolean };
 
-export default function App({ onAddPatient }: AppProps) {
+type Result = { kind: 'success'; fullName: string } | { kind: 'error' };
+
+export default function App() {
   const [state, setState] = useState<ListState>({ status: 'loading' });
-  const [attempt, setAttempt] = useState(0);
+  const [request, setRequest] = useState<ListRequest>({
+    id: 0,
+    showLoading: true,
+  });
+  const [formOpen, setFormOpen] = useState(false);
+  const [result, setResult] = useState<Result | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
-    setState({ status: 'loading' });
+    if (request.showLoading) setState({ status: 'loading' });
     fetchPatients(controller.signal)
       .then((patients) => setState({ status: 'ready', patients }))
       .catch(() => {
         if (!controller.signal.aborted) setState({ status: 'error' });
       });
     return () => controller.abort();
-  }, [attempt]);
+  }, [request]);
 
-  const retry = () => setAttempt((value) => value + 1);
+  const reload = (showLoading: boolean) =>
+    setRequest((current) => ({ id: current.id + 1, showLoading }));
+
+  const closeResult = () => setResult(null);
 
   return (
     <main className="app">
@@ -35,13 +45,71 @@ export default function App({ onAddPatient }: AppProps) {
         <button
           type="button"
           className="button button--primary"
-          onClick={onAddPatient}
-          disabled={!onAddPatient}
+          onClick={() => setFormOpen(true)}
         >
           Add Patient
         </button>
       </header>
-      <PatientListContent state={state} onRetry={retry} />
+      <PatientListContent state={state} onRetry={() => reload(true)} />
+
+      {formOpen && (
+        <PatientFormModal
+          onClose={() => setFormOpen(false)}
+          onCreated={(fullName) => {
+            setFormOpen(false);
+            setResult({ kind: 'success', fullName });
+            reload(false);
+          }}
+          onFailed={() => setResult({ kind: 'error' })}
+        />
+      )}
+
+      {result?.kind === 'success' && (
+        <Modal
+          title="Patient registered"
+          variant="success"
+          closeOnBackdrop
+          onClose={closeResult}
+        >
+          <p className="modal__text">
+            {result.fullName} was added to the list. A confirmation email is on
+            its way.
+          </p>
+          <div className="modal__actions">
+            <button
+              type="button"
+              className="button button--primary"
+              onClick={closeResult}
+            >
+              Close
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {result?.kind === 'error' && (
+        <Modal
+          title="Something went wrong"
+          variant="error"
+          role="alertdialog"
+          closeOnBackdrop
+          onClose={closeResult}
+        >
+          <p className="modal__text">
+            The patient could not be registered. Your data is still in the form,
+            so you can try again.
+          </p>
+          <div className="modal__actions">
+            <button
+              type="button"
+              className="button button--primary"
+              onClick={closeResult}
+            >
+              Back to form
+            </button>
+          </div>
+        </Modal>
+      )}
     </main>
   );
 }
